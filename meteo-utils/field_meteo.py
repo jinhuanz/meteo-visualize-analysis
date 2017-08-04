@@ -4,7 +4,8 @@
 
 class Field2D(object):
     """
-    Deal with meteorology 2-dimensional field with coordinate(rectilinear grid) of one variable,
+    Deal with meteorology 2-dimensional field with coordinate
+    (rectilinear or curvilinear grid) of one variable,
     1) data smoothing;
     2) data rarefaction;
     3) field ploting;
@@ -21,7 +22,7 @@ class Field2D(object):
        (TODO: mytree.query(cities,2) will give the first two points which is the closet to one city)
     """
 
-    def __init__(self, variable, data, lons, lats):
+    def __init__(self, variable, data, lons, lats, grid_type):
         """
         set up meteorology 2-dimensional field with rectilinear grid.
 
@@ -30,11 +31,13 @@ class Field2D(object):
             data: meteorology 2-dimensional data.
             lons: longitude, monotonical 1-dimensional data.
             lats: latitude, monotonical 1-dimensional data.
+            grid_type: type of grid, rectilinear or curvilinear
         """
         self.variable = variable
         self.data = data
         self.lons = lons
         self.lats = lats
+        self.grid_type = grid_type
 
     def nearest_ckdtree(self, cities):
         """
@@ -50,13 +53,24 @@ class Field2D(object):
         """
         import scipy.spatial as spatial
 
-        # points: n points of (lat, lon in each row)
         points = []
-        for ix in self.lons:
-            for iy in self.lats:
-                points.append([iy, ix])
+        if self.grid_type == 'curvilinear':
+            # points: n points of (lat, lon in each row)
+            for i in range(self.lons.shape[0]):
+                for j in range(self.lons.shape[1]):
+                    points.append([self.lats[i, j], self.lons[i, j]])
+        elif self.grid_type == 'rectilinear':
+            for ix in self.lons:
+                for iy in self.lats:
+                    points.append([iy, ix])
+
         mytree = spatial.cKDTree(points)
         dist, indexes = mytree.query(cities)
+
+        for i in range(len(cities)):
+            print("city location: ", cities[i])
+            print("nearest point: ", points[indexes[i]])
+            print("distance between this city and the nearest point:", dist[i])
 
         return dist, indexes
 
@@ -72,8 +86,16 @@ class Field2D(object):
             rarefaction variable with its coord(longitude, latitude)
         """
 
-        return self.data[::interval_y, ::interval_x], self.lats[::interval_y], \
-               self.lons[::interval_x]
+        if self.grid_type == 'curvilinear':
+            data_rare = self.data[::interval_y, ::interval_x]
+            lats_rare = self.lats[::interval_y, ::interval_x]
+            lons_rare = self.lons[::interval_y, ::interval_x]
+        elif self.grid_type == 'rectilinear':
+            data_rare = self.data[::interval_y, ::interval_x]
+            lats_rare = self.lats[::interval_y]
+            lons_rare = self.lons[::interval_x]
+
+        return data_rare, lats_rare, lons_rare
 
     def smoothing_gaussian(self, sigma_x=10.0, sigma_y=10.0):
         """
@@ -165,8 +187,11 @@ class Field2D(object):
             mapset = {'llcrnrlon': 73, 'llcrnrlat': 17, 'urcrnrlon': 136, 'urcrnrlat': 54,
                       'epsg': 3857}
         m = Basemap(**mapset)
-        longtide, latitude = np.meshgrid(self.lons, self.lats)
-        xi, yi = m(longtide, latitude)
+        if self.grid_type == 'curvilinear':
+            xi, yi = m(self.lons, self.lats)
+        elif self.grid_type == 'rectilinear':
+            longtide, latitude = np.meshgrid(self.lons, self.lats)
+            xi, yi = m(longtide, latitude)
         if "drawmap" in kwargs:
             drawmap = kwargs["drawmap"]
             if drawmap:
